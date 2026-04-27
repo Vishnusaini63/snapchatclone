@@ -115,23 +115,30 @@ exports.login = (req, res) => {
     const device = getDeviceName(req.headers['user-agent'] || '');
     const ip = req.ip || req.connection.remoteAddress;
 
-    db.query(
-      "INSERT INTO user_sessions (user_id, token, device_name, ip_address) VALUES (?, ?, ?, ?)",
-      [user.id, token, device, ip],
-      (err, sessionResult) => {
-        res.json({
-          message: "Login successful",
-          token,
-          sessionId: sessionResult.insertId, // 🔥 Send Session ID
-          user: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            profile_pic: user.profile_pic
-          }
-        });
+  db.query(
+  "INSERT INTO user_sessions (user_id, token, device_name, ip_address) VALUES (?, ?, ?, ?)",
+  [user.id, token, device, ip],
+  (err, sessionResult) => {
+
+    if (err) {
+      console.log("SESSION ERROR:", err);
+      return res.status(500).json({ message: "Session error" });
+    }
+
+    res.json({
+      message: "Login successful",
+      token,
+      sessionId: sessionResult.insertId,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        profile_pic: user.profile_pic
       }
-    );
+    });
+
+  }
+);
   });
 
 };
