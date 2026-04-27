@@ -904,7 +904,14 @@ const io = new Server(server, {
   pingTimeout: 60000,
   pingInterval: 25000,
 });
+// 👇 FRONTEND SERVE (IMPORTANT)
+const path = require("path");
 
+app.use(express.static(path.join(__dirname, "../snapchat-frontend/dist")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../snapchat-frontend/dist/index.html"));
+});
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
