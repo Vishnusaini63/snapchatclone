@@ -1,7 +1,7 @@
 import io from "socket.io-client";
 
-const socket = io("http://localhost:5000", {
-  transports: ["websocket"],
+const socket = io("https://snapchatclone.onrender.com", {
+  transports: ["websocket", "polling"],
   upgrade: false
 });
 

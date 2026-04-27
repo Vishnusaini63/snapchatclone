@@ -237,12 +237,12 @@ app.post("/api/group/upload-pic", upload.single("image"), async (req, res) => {
     // 🔥 realtime sabko
     io.to(String(groupId)).emit("groupPicUpdated", {
       groupId,
-      group_pic: "http://localhost:5000" + filePath
+      group_pic: "https://snapchatclone.onrender.com" + filePath
     });
 
     res.json({
       success: true,
-      group_pic: "http://localhost:5000" + filePath
+      group_pic: "https://snapchatclone.onrender.com" + filePath
     });
 
   } catch (err) {
@@ -939,7 +939,7 @@ app.post("/api/upload-audio", upload.single("audio"), (req, res) => {
   }
 
   const filePath = `/uploads/${req.file.filename}`;
-  const fullUrl = "http://localhost:5000" + filePath;
+  const fullUrl = "https://snapchatclone.onrender.com" + filePath;
 
   res.json({ url: fullUrl });
 });
@@ -952,7 +952,7 @@ app.post("/api/upload-media", upload.single("media"), (req, res) => {
 
   const filePath = `/uploads/${req.file.filename}`;
   res.json({
-    url: "http://localhost:5000" + filePath,
+    url: "https://snapchatclone.onrender.com" + filePath,
     type: req.file.mimetype.split("/")[0],
   });
 });
@@ -967,7 +967,7 @@ app.post("/api/chat/wallpaper", upload.single("wallpaper"), (req, res) => {
   let { user1, user2, type, isGroup } = req.body; // type = "me" | "everyone", isGroup
 
   const filePath = `/uploads/${req.file.filename}`;
-  const fullUrl = "http://localhost:5000" + filePath;
+  const fullUrl = "https://snapchatclone.onrender.com" + filePath;
 
   const u1 = isGroup === "true" ? 0 : Math.min(Number(user1), Number(user2));
   const u2 =
@@ -1039,7 +1039,7 @@ app.get("/api/chat/wallpaper/:user1/:user2", (req, res) => {
   db.query(sql, [u1, u2, user1, u1, u2], (err, result) => {
     if (result.length) {
       res.json({
-        wallpaper: "http://localhost:5000" + result[0].wallpaper,
+        wallpaper: "https://snapchatclone.onrender.com" + result[0].wallpaper,
       });
     } else {
       res.json({ wallpaper: null });
