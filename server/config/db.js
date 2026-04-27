@@ -1,15 +1,16 @@
+require("dotenv").config();
 const mysql = require("mysql2");
 
 const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "vishnu@2103", // agar mysql password hai to yaha likho
-  database: "snapchat_clone"
+  host: process.env.DB_HOST || "localhost",
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "",
+  database: process.env.DB_NAME || "snapchat_clone"
 });
 
 db.connect((err) => {
   if (err) {
-    console.log("Database connection failed ❌");
+    console.log("Database connection failed ❌", err);
   } else {
     console.log("MySQL Connected ✅");
   }

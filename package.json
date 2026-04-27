@@ -1,0 +1,7 @@
+{
+  "name": "snapchat-clone",
+  "scripts": {
+    "start": "node server/server.js",
+    "build": "cd snapchat-frontend && npm install && npm run build"
+  }
+}

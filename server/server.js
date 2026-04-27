@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -904,9 +905,10 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
-// ✅ ONLY ONE LISTEN
-server.listen(5000, () => {
-  console.log("Server running on port 5000 🚀");
+const PORT = process.env.PORT || 5000;
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} 🚀`);
 });
 
 // 🔥 AUTO DELETE JOB (ADD HERE)
