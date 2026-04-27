@@ -904,8 +904,7 @@ const io = new Server(server, {
   pingTimeout: 60000,
   pingInterval: 25000,
 });
-// 👇 FRONTEND SERVE (IMPORTANT)
-const path = require("path");
+
 
 app.use(express.static(path.join(__dirname, "../snapchat-frontend/dist")));
 
