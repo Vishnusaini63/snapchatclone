@@ -17,6 +17,7 @@ const Call = ({ user, friend, callType: initialCallType, isCaller, startSignalin
   const peerConnection = useRef(null);
   const callStarted = useRef(false);
 
+  const [remoteStream, setRemoteStream] = useState(null); // 🔥 NEW: State for remote stream
   const [callType, setCallType] = useState(initialCallType);
   const [stream, setStream] = useState(null);
   const [toast, setToast] = useState(null);
@@ -32,22 +33,24 @@ const Call = ({ user, friend, callType: initialCallType, isCaller, startSignalin
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   
+  const [makingOffer, setMakingOffer] = useState(false); // 🔥 NEW: Track if we are making an offer
   // 🔥 Speaker sync ref for callbacks
   const isSpeakerOnRef = useRef(true);
   useEffect(() => { isSpeakerOnRef.current = isSpeakerOn; }, [isSpeakerOn]);
 
 const [isFrontCamera, setIsFrontCamera] = useState(true);
 const [hasRemoteStream, setHasRemoteStream] = useState(false); // 🔥 Track connection
-const [remoteCameraOff, setRemoteCameraOff] = useState(false); // 🔥 Track remote camera status
+const [remoteCameraOff, setRemoteCameraOff] = useState(initialCallType === "voice"); // 🔥 Start based on call type
 const [isMinimized, setIsMinimized] = useState(false);
 const callStartTime = useRef(null);
   // ⏱️ TIMER
   const [seconds, setSeconds] = useState(0);
 const toggleSpeaker = () => {
-  if (remoteVideo.current) {
-    remoteVideo.current.muted = isSpeakerOn;
-    setIsSpeakerOn(!isSpeakerOn);
-  }
+    if (remoteVideo.current) {
+      // Speaker logic: Jab isSpeakerOn true hai (awaaz aa rahi hai), button dabane par muted true hoga.
+      remoteVideo.current.muted = isSpeakerOn; 
+      setIsSpeakerOn(!isSpeakerOn);
+    }
 };
   // 🎤 MUTE
   const toggleMute = () => {
@@ -155,28 +158,17 @@ const endCall = () => {
 
   // 🔥 FIRST: ontrack
   pc.ontrack = (event) => {
-    console.log("Remote track received:", event.track.kind);
+    console.log(`Remote ${event.track.kind} track received`);
     if (!callStartTime.current) callStartTime.current = Date.now();
 
-    if (remoteVideo.current && event.streams[0]) {
-      // 🔥 FIX: Re-assign mat karo agar stream wahi hai, tracks apne aap update hote hain
-      if (remoteVideo.current.srcObject !== event.streams[0]) {
-        remoteVideo.current.srcObject = event.streams[0];
+    setRemoteStream(prevStream => {
+      // 🔥 FIX: Return a NEW MediaStream instance to trigger React reactivity
+      const stream = prevStream || new MediaStream();
+      if (!stream.getTrackById(event.track.id)) {
+        stream.addTrack(event.track);
       }
-
-      // Har track arrival par play() call karein taaki sound resume ho jaye
-      remoteVideo.current.play().catch(() => {});
-
-      // 🔥 Force apply speaker state strictly
-      remoteVideo.current.muted = !isSpeakerOnRef.current;
-
-      setHasRemoteStream(true);
-
-      if (event.track.kind === "video") {
-        setCallType("video");
-        setRemoteCameraOff(false);
-      }
-    }
+      return new MediaStream(stream.getTracks());
+    });
   };
 
   // ✅ Robust connection tracking using connectionState
@@ -263,59 +255,54 @@ const switchToVideo = async () => {
     const pc = peerConnection.current;
     if (!pc) return;
 
-    const oldStream = stream;
-    let newStream;
+      let videoStream;
     try {
-      newStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
-        audio: true,
-      });
+        // 🔥 Sirf video track mang rahe hain taaki voice call wala audio interrupt na ho
+        videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
     } catch (gUMError) {
       showToast("Camera inaccessible 📹");
       return;
     }
 
-      // 1. Replace Audio Track (Keep audio alive)
-      const audioTrack = newStream.getAudioTracks()[0];
-      const audioSender = pc.getSenders().find(s => s.track?.kind === "audio");
-      if (audioSender) await audioSender.replaceTrack(audioTrack);
-      
-      // 🔥 Ensure new audio track respects current mute state
-      if (audioTrack) audioTrack.enabled = !isMuted;
+      const videoTrack = videoStream.getVideoTracks()[0];
 
-      // 2. Add/Replace Video Track
-      const videoTrack = newStream.getVideoTracks()[0];
+      // 1. Local stream state mein video track add karein
+      if (stream) {
+        stream.addTrack(videoTrack);
+      } else {
+        setStream(videoStream);
+      }
+
+      // 2. PeerConnection mein video track swap ya add karein
       const videoSender = pc.getSenders().find(s => s.track?.kind === "video");
-
       if (videoSender) {
         await videoSender.replaceTrack(videoTrack);
       } else {
-        pc.addTrack(videoTrack, newStream);
+        pc.addTrack(videoTrack, stream || videoStream);
+      }
+    
+      if (localVideo.current) {
+        localVideo.current.srcObject = stream || videoStream;
       }
 
-    // 🔥 Stop old hardware tracks AFTER replacing
-    if (oldStream) oldStream.getTracks().forEach(t => t.stop());
-
-    setStream(newStream);
-    if (localVideo.current) localVideo.current.srcObject = newStream;
     setCallType("video");
     setIsCameraOff(false);
 
-    // Renegotiation for 1-to-1 switch
-    if (pc.signalingState === "stable") {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+      // 🔥 Renegotiation Offer: Ab ye collision handle karega rollback ke sath
+      const isGroup = !!friend.isGroup;
+      const targetId = isGroup ? (targetUserId || (remoteOffer?.from) || friend.id) : friend.id;
 
-        const isGroup = !!friend.isGroup;
-        const targetId = isGroup ? (targetUserId || (remoteOffer?.from) || friend.id) : friend.id;
+      setMakingOffer(true); // 🔥 We are making an offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
 
-        socket.emit("offer", {
-          to: targetId,
-          from: user.id,
-          offer,
-          isGroup
-        });
-    }
+      socket.emit("offer", {
+        to: targetId,
+        from: user.id,
+        offer, // 🔥 Offer contains the new video track
+        isGroup
+      });
+      setMakingOffer(false); // Offer sent
   } catch (err) {
    console.error("Switch video failed:", err);
   }
@@ -330,37 +317,43 @@ const callUser = async () => {
       peerConnection.current = null;
     }
 
-   const pc = createPeer();
+  const pc = createPeer();
 
-
+  setMakingOffer(true); // 🔥 We are making an offer
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   const targetId = (friend.isGroup && targetUserId) ? String(targetUserId) : friend.id;
 
+  // 🔥 Offer contains the initial audio/video tracks
+  // (if callType is video, it will have both)
   socket.emit("offer", {
     to: targetId,
     from: user.id,
     offer,
     isGroup: !!friend.isGroup
   });
+  setMakingOffer(false); // Offer sent
 };
 
 const handleOffer = async (data) => {
   const { offer, from, isGroup, groupId } = data;
   let pc = peerConnection.current;
+  if (!pc) pc = createPeer();
+  if (!pc || pc.signalingState === "closed") return; // 🔥 Don't proceed if PC is closed
 
- if (!pc) {
-    pc = createPeer();
-  }
-
-  // 🔥 Glare/Collision handling
-  if (!pc || pc.signalingState === "closed") return;
-  if (pc.signalingState === "have-local-offer" && isCaller && offer.type === "offer") {
-    console.warn("Ignoring incoming offer during glare scenario.");
-    return;
-  }
+  const polite = !makingOffer; // 🔥 If we are not making an offer, we are polite
 
   try {
+    // 🔥 Better Glare/Collision handling: Jab dono side se offer aye
+    if (offer.type === "offer" && pc.signalingState !== "stable") {
+      if (!polite) { // Impolite peer (caller) incoming offer ko ignore karega
+        console.warn("Ignoring incoming offer during glare scenario.");
+        return;
+      }
+      // Polite peer (receiver) apna local offer rollback karega remote offer accept karne ke liye
+      await pc.setLocalDescription({ type: "rollback" });
+    }
+
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
     if (offer.type === "offer" && pc.signalingState === "have-remote-offer") {
@@ -386,10 +379,6 @@ const handleOffer = async (data) => {
 
     // ✅ ALWAYS process candidates and resume audio after description is set
     processQueuedCandidates(pc);
-    if (remoteVideo.current) {
-      remoteVideo.current.muted = !isSpeakerOnRef.current;
-      remoteVideo.current.play().catch(() => {});
-    }
   } catch (err) {
     console.error("Handle offer failed:", err);
   }
@@ -412,12 +401,6 @@ const handleAnswer = async ({ answer }) => {
     // Wrap answer in RTCSessionDescription
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
     
-    // 🔥 Answer handle hone ke baad sound resume karein
-    if (remoteVideo.current) {
-      remoteVideo.current.muted = !isSpeakerOnRef.current;
-      remoteVideo.current.play().catch(() => {});
-    }
-
     // ✅ Sahi jagah candidates process karne ki
     processQueuedCandidates(peerConnection.current);
 
@@ -453,6 +436,24 @@ const handleIce = async ({ candidate, from }) => {
       localVideo.current.srcObject = stream;
     }
   }, [stream, callType]);
+
+
+// 🔥 NEW: Effect to update remoteVideo.current.srcObject when remoteStream changes
+  useEffect(() => {
+    if (remoteVideo.current && remoteStream) {
+      if (remoteVideo.current.srcObject !== remoteStream) {
+        remoteVideo.current.srcObject = remoteStream;
+      }
+      
+      // Agar remote video track mil gaya hai, toh UI switch karo
+      const hasVideo = remoteStream.getVideoTracks().length > 0;
+      if (hasVideo) {
+        setCallType("video");
+        setRemoteCameraOff(false);
+      }
+      setHasRemoteStream(true);
+    }
+  }, [remoteStream]);
 
   // ✅ Fix: Only handle offer when we have our own stream ready
   useEffect(() => {
@@ -542,6 +543,8 @@ useEffect(() => {
   zIndex: 9999,
   overflow: "hidden"
 }}>
+    
+
 {/* 🔙 BACK TO CHAT */}
 <div
 onClick={() => {
@@ -580,12 +583,13 @@ onClick={() => {
           autoPlay
           muted
           style={{
-            width: "150px",
+            width: isCameraOff ? "0px" : "120px", // Hide local preview if camera is off
             position: "absolute",
             top: "10px",
             left: "10px",
             borderRadius: "10px",
-            zIndex: 2
+            zIndex: 2,
+            border: isCameraOff ? "none" : "2px solid #fff"
           }}
         />
       )}
@@ -595,17 +599,18 @@ onClick={() => {
         ref={remoteVideo}
         autoPlay
           playsInline   // 🔥 MUST
-
         style={{
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          opacity: (callType === 'video' && hasRemoteStream && !remoteCameraOff) ? 1 : 0 // 🔥 Hide if camera off
+          // 🔥 FIX: Remote video tabhi dikhega jab remote stream ho aur camera off na ho
+          opacity: (hasRemoteStream && !remoteCameraOff) ? 1 : 0 
         }}
       />
 
       {/* 🟢 CALL STATUS & PROFILE OVERLAY */}
-      {(!hasRemoteStream || callType === "voice" || (callType === "video" && remoteCameraOff)) && (
+      {/* 🔥 FIX: Only show overlay if no stream OR remote camera is explicitly off */}
+      {(!hasRemoteStream || remoteCameraOff) && (
         <div style={{
           position: "absolute",
           top: "50%",
@@ -625,10 +630,15 @@ onClick={() => {
           }}>
              {(friend?.avatar || friend?.profile_pic) ? <img src={friend.avatar || friend.profile_pic} style={{width:"100%", height:"100%", objectFit:"cover"}} /> : (friend?.isGroup ? "👥" : (friend?.username?.[0] || "?"))}
           </div>
-          <h2 style={{textShadow: "0 2px 5px rgba(0,0,0,0.5)"}}>{friend.isGroup ? friend.name : (friend?.username || "Friend")}</h2>
-          <p style={{fontSize: "1.2rem", marginTop: "5px", opacity: 0.8, textShadow: "0 1px 2px rgba(0,0,0,0.5)"}}>
-             {!hasRemoteStream ? (isCaller ? "Ringing..." : "Connecting...") : (remoteCameraOff ? "Camera Off" : (friend.isGroup ? "Group Call 👥" : "Voice Call 🎧"))}
-          </p>
+          {/* 🔥 Profile info text hidden when face is visible */}
+          {!(!remoteCameraOff && hasRemoteStream) && (
+            <>
+              <h2 style={{textShadow: "0 2px 5px rgba(0,0,0,0.5)"}}>{friend.isGroup ? friend.name : (friend?.username || "Friend")}</h2>
+              <p style={{fontSize: "1.2rem", marginTop: "5px", opacity: 0.8, textShadow: "0 1px 2px rgba(0,0,0,0.5)"}}>
+                {!hasRemoteStream ? (isCaller ? "Ringing..." : "Connecting...") : "Voice Call 🎧"}
+              </p>
+            </>
+          )}
         </div>
       )}
 
@@ -694,6 +704,10 @@ export default Call;
 
       {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
 {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
       {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
       {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
      

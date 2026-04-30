@@ -62,7 +62,7 @@ useEffect(() => {
   const fetchDeleteMode = async () => {
     try {
       const res = await axios.get(
-        `https://snapchatclone.onrender.com/api/chat/delete-mode/${user.id}/${friend.id}`,
+        `http://localhost:5000/api/chat/delete-mode/${user.id}/${friend.id}`,
         { params: { isGroup: !!friend.isGroup } }
       );
 
@@ -82,7 +82,7 @@ useEffect(() => {
   const fetchMuteSettings = async () => {
     try {
       const res = await axios.get(
-        `https://snapchatclone.onrender.com/api/chat/mute-settings/${user.id}/${friend.id}`
+        `http://localhost:5000/api/chat/mute-settings/${user.id}/${friend.id}`
       );
       if (res.data) {
         setIsChatMuted(!!res.data.isChatMuted);
@@ -110,11 +110,11 @@ useEffect(() => {
 
       if (friend.isGroup) {
         res = await axios.get(
-          `https://snapchatclone.onrender.com/api/group/messages/${friend.id}`
+          `http://localhost:5000/api/group/messages/${friend.id}`
         );
       } else {
         res = await axios.get(
-          `https://snapchatclone.onrender.com/api/messages/history/${user.id}/${friend.id}`
+          `http://localhost:5000/api/messages/history/${user.id}/${friend.id}`
         );
       }
 
@@ -200,7 +200,7 @@ socket.on("messageDeleted", ({ messageId }) => {
 
 const handleRemoveFriend = async () => {
   try {
-    await axios.delete("https://snapchatclone.onrender.com/api/friends/remove", {
+    await axios.delete("http://localhost:5000/api/friends/remove", {
       data: {
         userId: user.id,
         friendId: friend.id
@@ -220,7 +220,7 @@ const handleRemoveFriend = async () => {
 
 const handleEditName = async (nickname) => {
   try {
-    await axios.post("https://snapchatclone.onrender.com/api/friends/nickname", {
+    await axios.post("http://localhost:5000/api/friends/nickname", {
       userId: user.id,
       friendId: friend.id,
       nickname
@@ -234,7 +234,7 @@ const handleEditName = async (nickname) => {
 
 const handleEditGroupName = async (name) => {
   try {
-    await axios.put("https://snapchatclone.onrender.com/api/group/rename", {
+    await axios.put("http://localhost:5000/api/group/rename", {
       groupId: friend.id,
       newName: name,
       adminId: user.id
@@ -256,7 +256,7 @@ const handleBlock = async () => {
   if (!window.confirm("Block this user?")) return;
 
   try {
-    await axios.post("https://snapchatclone.onrender.com/api/friends/block", {
+    await axios.post("http://localhost:5000/api/friends/block", {
       userId: user.id,
       friendId: friend.id
     });
@@ -272,7 +272,7 @@ const handleBlock = async () => {
 
   const openForwardPicker = async () => {
     try {
-      const res = await axios.get("https://snapchatclone.onrender.com/api/auth/friends", { // Use token for authorization
+      const res = await axios.get("http://localhost:5000/api/auth/friends", { // Use token for authorization
         headers: { authorization: "Bearer " + token }
       });
       setFriendsList(res.data);
@@ -285,7 +285,7 @@ const handleBlock = async () => {
 
 const openGroupPicker = async () => {
   try {
-    const res = await axios.get("https://snapchatclone.onrender.com/api/auth/friends", { // Use token for authorization
+    const res = await axios.get("http://localhost:5000/api/auth/friends", { // Use token for authorization
       headers: { authorization: "Bearer " + token }
     });
 
@@ -299,7 +299,7 @@ const openGroupPicker = async () => {
 
 const openAddMemberPicker = async () => {
   try {
-    const res = await axios.get("https://snapchatclone.onrender.com/api/auth/friends", {
+    const res = await axios.get("http://localhost:5000/api/auth/friends", {
       headers: { authorization: "Bearer " + token }
     });
     
@@ -362,7 +362,7 @@ const handleToggleMute = async (type) => {
   console.log("SENDING:", newChatMuted, newCallMuted); // 🔥 DEBUG
 
   try {
-    await axios.post("https://snapchatclone.onrender.com/api/chat/mute-settings", {
+    await axios.post("http://localhost:5000/api/chat/mute-settings", {
       userId: user.id,
       friendId: friend.id,
       isChatMuted: newChatMuted,
@@ -375,7 +375,7 @@ const handleToggleMute = async (type) => {
  
 const handleSaveDeleteMode = async () => {
   try {
-    await axios.post("https://snapchatclone.onrender.com/api/chat/delete-mode", {
+    await axios.post("http://localhost:5000/api/chat/delete-mode", {
       userId: user.id,
       friendId: friend.id,
       deleteMode: deleteAfter, 
@@ -400,7 +400,7 @@ const handleCreateGroup = async () => {
       return;
     }
 
-    const res = await axios.post("https://snapchatclone.onrender.com/api/group/create", {
+    const res = await axios.post("http://localhost:5000/api/group/create", {
       name: newName,
       members: selectedUsers.map(u => u.id),
       creator: user.id   // 🔥 FIX
@@ -426,7 +426,7 @@ const handleDeleteGroup = async () => {
   if (!window.confirm("Are you sure you want to delete this group? This will remove it for everyone! ⚠️")) return;
 
   try {
-    await axios.delete("https://snapchatclone.onrender.com/api/group/delete", {
+    await axios.delete("http://localhost:5000/api/group/delete", {
       data: {
         groupId: friend.id,
         adminId: user.id
@@ -462,7 +462,7 @@ const handleLeaveGroup = async () => {
   if (!window.confirm("Are you sure you want to leave this group? 🚪")) return;
 
   try {
-    await axios.delete("https://snapchatclone.onrender.com/api/group/leave", {
+    await axios.delete("http://localhost:5000/api/group/leave", {
       data: {
         groupId: friend.id,
         userId: user.id
@@ -481,7 +481,7 @@ const handleLeaveGroup = async () => {
 const handleTransferAndLeave = async (newAdminId) => {
   if (!window.confirm("Make this member admin and leave?")) return;
   try {
-    await axios.post("https://snapchatclone.onrender.com/api/group/transfer-and-leave", {
+    await axios.post("http://localhost:5000/api/group/transfer-and-leave", {
       groupId: friend.id,
       userId: user.id,
       newAdminId
@@ -497,7 +497,7 @@ const handleTransferAndLeave = async (newAdminId) => {
 
 const handleAddMembers = async () => {
   try {
-    await axios.post("https://snapchatclone.onrender.com/api/group/member/add", {
+    await axios.post("http://localhost:5000/api/group/member/add", {
       groupId: friend.id,
       userIds: selectedUsers.map(u => u.id)
     }, {
@@ -515,7 +515,7 @@ const handleAddMembers = async () => {
 
 const handlePromoteMember = async (memberId) => {
   try {
-    await axios.post("https://snapchatclone.onrender.com/api/group/member/promote", {
+    await axios.post("http://localhost:5000/api/group/member/promote", {
       groupId: friend.id,
       memberId
     }, {
@@ -530,7 +530,7 @@ const handlePromoteMember = async (memberId) => {
 
 const handleDemoteMember = async (memberId) => {
   try {
-    await axios.post("https://snapchatclone.onrender.com/api/group/member/demote", {
+    await axios.post("http://localhost:5000/api/group/member/demote", {
       groupId: friend.id,
       memberId
     }, {
@@ -546,7 +546,7 @@ const handleDemoteMember = async (memberId) => {
 const handleRemoveMember = async (memberId) => {
   if (!window.confirm("Remove this member from group?")) return;
   try {
-    await axios.delete("https://snapchatclone.onrender.com/api/group/member/remove", {
+    await axios.delete("http://localhost:5000/api/group/member/remove", {
       data: {
         groupId: friend.id,
         memberId: memberId,
@@ -574,7 +574,7 @@ const handleGroupPicUpload = async (e) => {
 
   try {
     const res = await axios.post(
-      "https://snapchatclone.onrender.com/api/group/upload-pic",
+      "http://localhost:5000/api/group/upload-pic",
       formData
     );
 

@@ -174,11 +174,11 @@ const menuItem = {
 
   const openForwardPicker = async () => {
     try {
-      const res = await axios.get("https://snapchatclone.onrender.com/api/auth/friends", {
+      const res = await axios.get("http://localhost:5000/api/auth/friends", {
         headers: { authorization: "Bearer " + localStorage.getItem("token") }
       });
 
-      const groupsRes = await axios.get(`https://snapchatclone.onrender.com/api/group/my/${user.id}`);
+      const groupsRes = await axios.get(`http://localhost:5000/api/group/my/${user.id}`);
 
       const combined = [
         ...res.data.map(f => ({ ...f, isGroup: false })),
@@ -319,7 +319,7 @@ const deleteForEveryone = () => {
     formData.append("media", blob, type === "image" ? "capture.jpg" : "capture.webm");
 
     try {
-      const res = await axios.post("https://snapchatclone.onrender.com/api/upload-media", formData);
+      const res = await axios.post("http://localhost:5000/api/upload-media", formData);
       const { url } = res.data;
       const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const localId = Date.now().toString();
@@ -572,7 +572,7 @@ useEffect(() => {
       return;
     }
 axios.get(
-  `https://snapchatclone.onrender.com/api/chat/wallpaper/${user.id}/${friend.id}`,
+  `http://localhost:5000/api/chat/wallpaper/${user.id}/${friend.id}`,
   {
     params: { isGroup: !!friend.isGroup }
   }
@@ -633,7 +633,7 @@ axios.get(
   useEffect(() => {
     if (!user?.id || !friend?.id) return;
     axios.get(
-  `https://snapchatclone.onrender.com/api/chat/theme/${user.id}/${friend.id}`,
+  `http://localhost:5000/api/chat/theme/${user.id}/${friend.id}`,
   {
     params: { isGroup: !!friend.isGroup }
   }
@@ -679,7 +679,7 @@ useEffect(() => {
     const fetchMessages = async () => {
       if (!user?.id || !friend?.id) return; // 🔥 Safety check added here too
       try {
-        const res = await axios.get(`https://snapchatclone.onrender.com/api/messages/history/${user.id}/${friend.id}`, {
+        const res = await axios.get(`http://localhost:5000/api/messages/history/${user.id}/${friend.id}`, {
           params: { isGroup: !!friend.isGroup }
         });
         
@@ -723,7 +723,7 @@ useEffect(() => {
   const fetchDeleteMode = async () => {
     try {
       const res = await axios.get(
-        `https://snapchatclone.onrender.com/api/chat/delete-mode/${user.id}/${friend.id}`,
+        `http://localhost:5000/api/chat/delete-mode/${user.id}/${friend.id}`,
         { params: { isGroup: !!friend.isGroup } }
       );
 
@@ -742,7 +742,7 @@ useEffect(() => {
   const fetchMuteSettings = async () => {
     try {
       const res = await axios.get(
-        `https://snapchatclone.onrender.com/api/chat/mute-settings/${user.id}/${friend.id}`
+        `http://localhost:5000/api/chat/mute-settings/${user.id}/${friend.id}`
       );
 
       if (res.data) {
@@ -1220,7 +1220,7 @@ socket.off("reactionUpdated");
       setChatTheme(theme);
       setShowThemePopup(false);
 
-      await axios.post("https://snapchatclone.onrender.com/api/chat/theme", {
+      await axios.post("http://localhost:5000/api/chat/theme", {
         user1: user.id,
         user2: friend.id,
         theme,
@@ -1261,7 +1261,7 @@ const handleWallpaperChange = async (e) => {
   formData.append("isGroup", !!friend.isGroup); // 🔥 ADD THIS
 
   try {
-    const res = await axios.post("https://snapchatclone.onrender.com/api/chat/wallpaper", formData);
+    const res = await axios.post("http://localhost:5000/api/chat/wallpaper", formData);
 setChatWallpaper(null); // 🔥 reset
 
 setTimeout(() => {
@@ -1365,7 +1365,7 @@ const startRecording = async () => {
         const formData = new FormData();
         formData.append("audio", audioBlob);
 
-        const res = await fetch("https://snapchatclone.onrender.com/api/upload-audio", {
+        const res = await fetch("http://localhost:5000/api/upload-audio", {
           method: "POST",
           body: formData
         });
@@ -1491,7 +1491,7 @@ const formatRecordingTime = (seconds) => {
     formData.append("media", file);
 
     try {
-      const res = await axios.post("https://snapchatclone.onrender.com/api/upload-media", formData);
+      const res = await axios.post("http://localhost:5000/api/upload-media", formData);
       const { url, type } = res.data;
       const mediaType = forceDocument ? "document" : (type === "image" ? "image" : (type === "video" ? "video" : "document")); // 🔥 NEW: Handle documents
       const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

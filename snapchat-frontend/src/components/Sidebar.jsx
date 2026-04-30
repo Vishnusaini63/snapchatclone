@@ -61,7 +61,7 @@ const Sidebar = ({ onSelectFriend, selectedFriend }) => {
 useEffect(() => {
   if (!currentUser?.id) return;
 
-  axios.get(`https://snapchatclone.onrender.com/api/group/my/${currentUser.id}`)
+  axios.get(`http://localhost:5000/api/group/my/${currentUser.id}`)
     .then(res => {
       const fixedGroups = res.data.map(g => ({
         ...g,
@@ -75,7 +75,7 @@ useEffect(() => {
     .catch(err => console.log(err));
 }, []);
   useEffect(() => {
-    axios.get("https://snapchatclone.onrender.com/api/auth/profile", {
+    axios.get("http://localhost:5000/api/auth/profile", {
       headers: { authorization: "Bearer " + token }
     })
     .then(res => {
@@ -85,7 +85,7 @@ useEffect(() => {
 
     // 🔥 Fetch unread counts from server on load
     if (currentUser?.id) {
-      axios.get(`https://snapchatclone.onrender.com/api/messages/unread-counts/${currentUser.id}`)
+      axios.get(`http://localhost:5000/api/messages/unread-counts/${currentUser.id}`)
         .then(res => {
           const counts = {};
           res.data.forEach(item => {
@@ -96,7 +96,7 @@ useEffect(() => {
         });
 
       // 🔥 Fetch latest message text for each friend from DB
-      axios.get(`https://snapchatclone.onrender.com/api/messages/last-messages/${currentUser.id}`)
+      axios.get(`http://localhost:5000/api/messages/last-messages/${currentUser.id}`)
         .then(res => {
           const msgs = {};
           res.data.forEach(m => {
@@ -106,7 +106,7 @@ useEffect(() => {
           localStorage.setItem("lastMessages", JSON.stringify({ ...lastMessages, ...msgs }));
         });
 // 🔥 Fetch Mute Settings for all friends
-      axios.get(`https://snapchatclone.onrender.com/api/chat/mute-settings/all/${currentUser.id}`)
+      axios.get(`http://localhost:5000/api/chat/mute-settings/all/${currentUser.id}`)
         .then(res => {
          if (res.data && Array.isArray(res.data)) {
             const settings = {};
@@ -119,7 +119,7 @@ useEffect(() => {
 
 
       // 🔥 Fetch initial pending requests count
-      axios.get("https://snapchatclone.onrender.com/api/auth/requests", {
+      axios.get("http://localhost:5000/api/auth/requests", {
         headers: { authorization: "Bearer " + token }
       })
       .then(res => {
@@ -413,7 +413,7 @@ socket.on("groupCreated", handleGroupCreated);
 
 
   const getFriends = () => {
-    axios.get("https://snapchatclone.onrender.com/api/auth/friends", {
+    axios.get("http://localhost:5000/api/auth/friends", {
       headers: { authorization: "Bearer " + token }
     })
     .then(res => {

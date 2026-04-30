@@ -37,7 +37,7 @@ const handleLogin = async () => {
   try {
 
     const res = await axios.post(
-      "https://snapchatclone.onrender.com/api/auth/login",
+      "http://localhost:5000/api/auth/login",
       { email, password }
     );
 
@@ -65,7 +65,7 @@ const handleLogin = async () => {
 
 const handleVerify2FA = async () => {
   try {
-    const res = await axios.post("https://snapchatclone.onrender.com/api/auth/verify-2fa", {
+    const res = await axios.post("http://localhost:5000/api/auth/verify-2fa", {
       userId: twoFaData.userId,
       code: twoFaCode,
       twoFaId: twoFaData.twoFaId

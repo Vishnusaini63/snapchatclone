@@ -237,12 +237,12 @@ app.post("/api/group/upload-pic", upload.single("image"), async (req, res) => {
     // 🔥 realtime sabko
     io.to(String(groupId)).emit("groupPicUpdated", {
       groupId,
-      group_pic: "https://snapchatclone.onrender.com" + filePath
+      group_pic: "http://localhost:5000" + filePath
     });
 
     res.json({
       success: true,
-      group_pic: "https://snapchatclone.onrender.com" + filePath
+      group_pic: "http://localhost:5000" + filePath
     });
 
   } catch (err) {
@@ -906,17 +906,6 @@ const io = new Server(server, {
 });
 
 
-app.use(express.static(path.join(__dirname, "../snapchat-frontend/dist")));
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../snapchat-frontend/dist/index.html"));
-});
-const PORT = process.env.PORT || 5000;
-
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT} 🚀`);
-});
-
 // 🔥 AUTO DELETE JOB (ADD HERE)
 setInterval(async () => {
   try {
@@ -939,7 +928,7 @@ app.post("/api/upload-audio", upload.single("audio"), (req, res) => {
   }
 
   const filePath = `/uploads/${req.file.filename}`;
-  const fullUrl = "https://snapchatclone.onrender.com" + filePath;
+  const fullUrl = "http://localhost:5000" + filePath;
 
   res.json({ url: fullUrl });
 });
@@ -952,7 +941,7 @@ app.post("/api/upload-media", upload.single("media"), (req, res) => {
 
   const filePath = `/uploads/${req.file.filename}`;
   res.json({
-    url: "https://snapchatclone.onrender.com" + filePath,
+    url: "http://localhost:5000" + filePath,
     type: req.file.mimetype.split("/")[0],
   });
 });
@@ -967,7 +956,7 @@ app.post("/api/chat/wallpaper", upload.single("wallpaper"), (req, res) => {
   let { user1, user2, type, isGroup } = req.body; // type = "me" | "everyone", isGroup
 
   const filePath = `/uploads/${req.file.filename}`;
-  const fullUrl = "https://snapchatclone.onrender.com" + filePath;
+  const fullUrl = "http://localhost:5000" + filePath;
 
   const u1 = isGroup === "true" ? 0 : Math.min(Number(user1), Number(user2));
   const u2 =
@@ -1039,7 +1028,7 @@ app.get("/api/chat/wallpaper/:user1/:user2", (req, res) => {
   db.query(sql, [u1, u2, user1, u1, u2], (err, result) => {
     if (result.length) {
       res.json({
-        wallpaper: "https://snapchatclone.onrender.com" + result[0].wallpaper,
+        wallpaper: "http://localhost:5000" + result[0].wallpaper,
       });
     } else {
       res.json({ wallpaper: null });
@@ -2630,6 +2619,19 @@ app.use((err, req, res, next) => {
       .json({ error: err.message || "Internal Server Error" });
   }
   next();
+});
+
+// 🔥 Move frontend static files and catch-all route to the end
+// This ensures API routes are checked first.
+app.use(express.static(path.join(__dirname, "../snapchat-frontend/dist")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../snapchat-frontend/dist/index.html"));
+});
+
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} 🚀`);
 });
 
 //dfghjklkjhgfghjklkjhgfghjklkjhg

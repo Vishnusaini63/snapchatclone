@@ -25,11 +25,11 @@ const Chat = () => {
     const token = localStorage.getItem("token");
 
     // Call context ke liye data load karein
-    axios.get("https://snapchatclone.onrender.com/api/auth/friends", {
+    axios.get("http://localhost:5000/api/auth/friends", {
       headers: { authorization: "Bearer " + token }
     }).then(res => setFriends(res.data));
 
-    axios.get(`https://snapchatclone.onrender.com/api/group/my/${user.id}`)
+    axios.get(`http://localhost:5000/api/group/my/${user.id}`)
       .then(res => setGroups(res.data));
 
     const handleIncomingCall = (data) => {

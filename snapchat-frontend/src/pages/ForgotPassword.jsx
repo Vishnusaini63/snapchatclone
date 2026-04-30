@@ -20,7 +20,7 @@ const ForgotPassword = () => {
     try {
 
       const res = await axios.post(
-        "https://snapchatclone.onrender.com/api/auth/forgot-password",
+        "http://localhost:5000/api/auth/forgot-password",
         { email }
       );
 
