@@ -8,14 +8,15 @@ const nodemailer = require("nodemailer");
 const getDeviceName = (ua) => {
   if (!ua) return "Unknown Device";
   const str = ua.toLowerCase(); // 🔥 Sabse pehle lowercase karo
-  
+
   let os = "Device";
   // Priority logic for OS detection
   if (str.includes("windows")) os = "Windows PC";
   else if (str.includes("iphone")) os = "iPhone";
   else if (str.includes("ipad")) os = "iPad";
   else if (str.includes("android")) os = "Android Phone";
-  else if (str.includes("macintosh") || str.includes("mac os x")) os = "Mac / MacBook";
+  else if (str.includes("macintosh") || str.includes("mac os x"))
+    os = "Mac / MacBook";
   else if (str.includes("linux")) os = "Linux PC";
   else os = "Unknown Device";
 
@@ -25,7 +26,8 @@ const getDeviceName = (ua) => {
   else if (str.includes("opr") || str.includes("opera")) browser = "Opera";
   else if (str.includes("firefox")) browser = "Firefox";
   else if (str.includes("chrome")) browser = "Chrome";
-  else if (str.includes("safari") && !str.includes("chrome")) browser = "Safari";
+  else if (str.includes("safari") && !str.includes("chrome"))
+    browser = "Safari";
   else if (str.includes("safari")) browser = "Safari";
 
   return `${os} (${browser})`;
@@ -33,7 +35,6 @@ const getDeviceName = (ua) => {
 
 // ================= REGISTER =================
 exports.register = async (req, res) => {
-
   const { username, email, password } = req.body;
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -41,30 +42,25 @@ exports.register = async (req, res) => {
   // 👇 default avatar
   const defaultAvatar = "https://i.pravatar.cc/150?img=1";
 
-const sql = "INSERT INTO users (username,email,password,profile_pic) VALUES (?,?,?,?)";
+  const sql =
+    "INSERT INTO users (username,email,password,profile_pic) VALUES (?,?,?,?)";
 
   db.query(sql, [username, email, hashedPassword, defaultAvatar], (err) => {
-
     if (err) {
       return res.status(500).json({ message: "Email already exists" });
     }
 
     res.json({ message: "User registered successfully" });
-
   });
-
 };
-
 
 // ================= LOGIN =================
 exports.login = (req, res) => {
-
   const { email, password } = req.body;
 
   const sql = "SELECT * FROM users WHERE email=?";
 
   db.query(sql, [email], async (err, result) => {
-
     if (err) return res.status(500).json(err);
 
     if (result.length === 0) {
@@ -84,91 +80,93 @@ exports.login = (req, res) => {
       const twoFaId = crypto.randomBytes(16).toString("hex");
       const code = Math.floor(100000 + Math.random() * 900000).toString();
 
-      const sqlUpdate = "UPDATE users SET two_fa_id=?, two_fa_code=?, two_fa_status='pending' WHERE id=?";
+      const sqlUpdate =
+        "UPDATE users SET two_fa_id=?, two_fa_code=?, two_fa_status='pending' WHERE id=?";
       db.query(sqlUpdate, [twoFaId, code, user.id], async (updateErr) => {
         if (updateErr) return res.status(500).json(updateErr);
 
         // Send Email Code
         try {
-          const transporter = nodemailer.createTransport({ service: "gmail", auth: { user: "sainivishnu2103@gmail.com", pass: "fcdu lvpv zcfr rqfg" } });
-          await transporter.sendMail({ from: "Snapchat Clone", to: user.email, subject: "Your 2FA Code", html: `<h3>Your Login Verification Code is: ${code}</h3>` });
-        } catch (e) { console.log("2FA Mail Error:", e); }
+          const transporter = nodemailer.createTransport({
+            service: "gmail",
+          auth: { 
+  user: process.env.EMAIL_USER, 
+  pass: process.env.EMAIL_PASS 
+},
+          });
+          await transporter.sendMail({
+            from: "Snapchat Clone",
+            to: user.email,
+            subject: "Your 2FA Code",
+            html: `<h3>Your Login Verification Code is: ${code}</h3>`,
+          });
+        } catch (e) {
+          console.log("2FA Mail Error:", e);
+        }
 
         return res.json({
           message: "2FA Required",
           twoFactorRequired: true,
           twoFaId,
-          userId: user.id
+          userId: user.id,
         });
       });
       return;
     }
 
     // 🔐 JWT token
-    const token = jwt.sign(
-      { id: user.id, email: user.email },
-      "secretkey",
-      { expiresIn: "1d" }
-    );
-
-    // 📱 Record Session
-    const device = getDeviceName(req.headers['user-agent'] || '');
-    const ip = req.ip || req.connection.remoteAddress;
-
-  db.query(
-  "INSERT INTO user_sessions (user_id, token, device_name, ip_address) VALUES (?, ?, ?, ?)",
-  [user.id, token, device, ip],
-  (err, sessionResult) => {
-
-    if (err) {
-      console.log("SESSION ERROR:", err);
-      return res.status(500).json({ message: "Session error" });
-    }
-
-    res.json({
-      message: "Login successful",
-      token,
-      sessionId: sessionResult.insertId,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        profile_pic: user.profile_pic
-      }
+    const token = jwt.sign({ id: user.id, email: user.email }, "secretkey", {
+      expiresIn: "1d",
     });
 
-  }
-);
+    // 📱 Record Session
+    const device = getDeviceName(req.headers["user-agent"] || "");
+    const ip = req.ip || req.connection.remoteAddress;
+
+    db.query(
+      "INSERT INTO user_sessions (user_id, token, device_name, ip_address) VALUES (?, ?, ?, ?)",
+      [user.id, token, device, ip],
+      (err, sessionResult) => {
+        if (err) {
+          console.log("SESSION ERROR:", err);
+          return res.status(500).json({ message: "Session error" });
+        }
+
+        res.json({
+          message: "Login successful",
+          token,
+          sessionId: sessionResult.insertId,
+          user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            profile_pic: user.profile_pic,
+          },
+        });
+      },
+    );
   });
-
 };
-
 
 // ================= PROFILE =================
 exports.getProfile = (req, res) => {
-
   const userId = req.user.id;
 
   // 👇 avatar bhi add karo
   const sql = "SELECT id, username, email, profile_pic FROM users WHERE id=?";
 
   db.query(sql, [userId], (err, result) => {
-
     if (err) return res.status(500).json(err);
 
     // 👇 clean response (best practice)
     res.json({
-      user: result[0]
+      user: result[0],
     });
-
   });
-
 };
-
 
 // ================= FORGOT PASSWORD =================
 exports.forgotPassword = (req, res) => {
-
   const { email } = req.body;
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -179,7 +177,6 @@ exports.forgotPassword = (req, res) => {
     "UPDATE users SET reset_token=?, reset_token_expire=? WHERE email=?";
 
   db.query(sql, [token, expire, email], async (err, result) => {
-
     if (err) return res.status(500).json(err);
 
     if (result.affectedRows === 0) {
@@ -187,55 +184,45 @@ exports.forgotPassword = (req, res) => {
     }
 
     try {
-
       const transporter = nodemailer.createTransport({
         service: "gmail",
-       auth: { 
-  user: process.env.EMAIL_USER, 
-  pass: process.env.EMAIL_PASS 
-}
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
       });
 
-      const resetLink =
-        `https://snapchatclone.onrender.com/reset-password/${token}`;
+      const resetLink = `https://snapchatclone.onrender.com/reset-password/${token}`;
 
       await transporter.sendMail({
         from: "Snapchat Clone",
         to: email,
         subject: "Reset Password",
-        html: `<a href="${resetLink}">Reset Password</a>`
+        html: `<a href="${resetLink}">Reset Password</a>`,
       });
 
       res.json({ message: "Reset email sent" });
-
     } catch (error) {
-
       console.log("Email error:", error);
 
       res.status(500).json({
-        message: "Email sending failed ❌"
+        message: "Email sending failed ❌",
       });
-
     }
-
   });
-
 };
-
 
 // ================= RESET PASSWORD =================
 exports.resetPassword = async (req, res) => {
-
   const { token } = req.params;
   const { password } = req.body;
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
   const sql =
-   "UPDATE users SET password=?, reset_token=NULL, reset_token_expire=NULL WHERE reset_token=? AND reset_token_expire > NOW()"
+    "UPDATE users SET password=?, reset_token=NULL, reset_token_expire=NULL WHERE reset_token=? AND reset_token_expire > NOW()";
 
   db.query(sql, [hashedPassword, token], (err, result) => {
-
     if (err) return res.status(500).json(err);
 
     if (result.affectedRows === 0) {
@@ -243,9 +230,7 @@ exports.resetPassword = async (req, res) => {
     }
 
     res.json({ message: "Password reset successful" });
-
   });
-
 };
 
 // ================= VERIFY 2FA =================
@@ -254,7 +239,8 @@ exports.verify2FA = (req, res) => {
   const sql = "SELECT * FROM users WHERE id=? AND two_fa_id=?";
 
   db.query(sql, [userId, twoFaId], async (err, result) => {
-    if (err || result.length === 0) return res.status(400).json({ message: "Invalid 2FA session" });
+    if (err || result.length === 0)
+      return res.status(400).json({ message: "Invalid 2FA session" });
 
     const user = result[0];
 
@@ -263,22 +249,36 @@ exports.verify2FA = (req, res) => {
       return res.status(401).json({ message: "Incorrect code" });
     }
 
-    if (user.two_fa_status === 'rejected') {
+    if (user.two_fa_status === "rejected") {
       return res.status(403).json({ message: "Login request was denied" });
     }
 
-    db.query("UPDATE users SET two_fa_id=NULL, two_fa_code=NULL, two_fa_status=NULL WHERE id=?", [userId]);
-    const token = jwt.sign({ id: user.id, email: user.email }, "secretkey", { expiresIn: "1d" });
-
-    const device = getDeviceName(req.headers['user-agent'] || '');
-    const ip = req.ip || req.connection.remoteAddress;
-    db.query("INSERT INTO user_sessions (user_id, token, device_name, ip_address) VALUES (?, ?, ?, ?)", [user.id, token, device, ip], (err, sessionResult) => {
-      res.json({
-        token,
-        sessionId: sessionResult.insertId, // 🔥 Send Session ID
-        user: { id: user.id, username: user.username, email: user.email, profile_pic: user.profile_pic }
-      });
+    db.query(
+      "UPDATE users SET two_fa_id=NULL, two_fa_code=NULL, two_fa_status=NULL WHERE id=?",
+      [userId],
+    );
+    const token = jwt.sign({ id: user.id, email: user.email }, "secretkey", {
+      expiresIn: "1d",
     });
+
+    const device = getDeviceName(req.headers["user-agent"] || "");
+    const ip = req.ip || req.connection.remoteAddress;
+    db.query(
+      "INSERT INTO user_sessions (user_id, token, device_name, ip_address) VALUES (?, ?, ?, ?)",
+      [user.id, token, device, ip],
+      (err, sessionResult) => {
+        res.json({
+          token,
+          sessionId: sessionResult.insertId, // 🔥 Send Session ID
+          user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            profile_pic: user.profile_pic,
+          },
+        });
+      },
+    );
   });
 };
 
@@ -286,19 +286,20 @@ exports.verify2FA = (req, res) => {
 exports.getLoginActivity = (req, res) => {
   const userId = req.user.id;
   let currentToken = req.headers.authorization?.split(" ")[1];
-  
+
   if (!currentToken) return res.status(401).json({ message: "No token" });
 
-  const sql = "SELECT id, device_name, ip_address, last_active, token FROM user_sessions WHERE user_id = ? AND is_active = 1 ORDER BY last_active DESC";
-  
+  const sql =
+    "SELECT id, device_name, ip_address, last_active, token FROM user_sessions WHERE user_id = ? AND is_active = 1 ORDER BY last_active DESC";
+
   db.query(sql, [userId], (err, results) => {
     if (err) return res.status(500).json(err);
-    
+
     // Compare tokens to find "This Device"
-    const sessions = results.map(s => ({
+    const sessions = results.map((s) => ({
       ...s,
       isCurrent: String(s.token).trim() === String(currentToken).trim(),
-      token: undefined // security: don't send tokens back
+      token: undefined, // security: don't send tokens back
     }));
     res.json({ sessions });
   });
@@ -308,7 +309,8 @@ exports.getLoginActivity = (req, res) => {
 exports.logoutDevice = (req, res) => {
   const { sessionId } = req.body;
   const userId = req.user.id;
-  const sql = "UPDATE user_sessions SET is_active = 0 WHERE id = ? AND user_id = ?";
+  const sql =
+    "UPDATE user_sessions SET is_active = 0 WHERE id = ? AND user_id = ?";
 
   db.query(sql, [sessionId, userId], (err) => {
     if (err) return res.status(500).json(err);
@@ -336,7 +338,7 @@ exports.changePassword = async (req, res) => {
 
     if (!match) {
       return res.status(400).json({
-        message: "Current password doesn't match ❌"
+        message: "Current password doesn't match ❌",
       });
     }
 
@@ -379,7 +381,6 @@ exports.sendRequest = (req, res) => {
   });
 };
 
-
 // accept request
 exports.acceptRequest = (req, res) => {
   const { requestId } = req.body;
@@ -393,7 +394,6 @@ exports.acceptRequest = (req, res) => {
 };
 
 exports.getAllUsers = (req, res) => {
-
   const userId = req.user.id;
 
   const sql = `
@@ -435,16 +435,12 @@ exports.getAllUsers = (req, res) => {
       if (err) return res.status(500).json(err);
 
       res.json(result);
-    }
+    },
   );
-
 };
-
-
 
 // ================= GET FRIEND REQUESTS =================
 exports.getRequests = (req, res) => {
-
   const userId = req.user.id;
 
   const sql = `
@@ -459,12 +455,9 @@ exports.getRequests = (req, res) => {
 
     res.json(result);
   });
-
 };
 
-
 exports.getFriends = (req, res) => {
-
   const userId = req.user.id;
 
   const sql = `
@@ -493,11 +486,17 @@ exports.getFriends = (req, res) => {
 
     res.json(result);
   });
-
 };
 
-{/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
- {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-     
+{
+  /* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/
+}
+{
+  /* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/
+}
+{
+  /* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/
+}
+{
+  /* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/
+}
