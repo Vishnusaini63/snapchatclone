@@ -197,7 +197,7 @@ exports.forgotPassword = (req, res) => {
       });
 
       const resetLink =
-        `http://localhost:5173/reset-password/${token}`;
+        `https://snapchatclone.onrender.com/reset-password/${token}`;
 
       await transporter.sendMail({
         from: "Snapchat Clone",
