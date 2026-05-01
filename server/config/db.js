@@ -8,11 +8,17 @@ if (!dbUrl) {
   process.exit(1);
 }
 
-const db = mysql.createPool(dbUrl);
+const db = mysql.createPool({
+  uri: dbUrl,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
+// Test connection
 db.getConnection((err, conn) => {
   if (err) {
-    console.log("❌ DB ERROR:", err);
+    console.log("❌ DB ERROR:", err.message);
   } else {
     console.log("✅ Railway DB Connected");
     conn.release();
