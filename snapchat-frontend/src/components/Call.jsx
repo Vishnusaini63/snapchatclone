@@ -14,10 +14,10 @@ const Call = ({ user, friend, callType: initialCallType, isCaller, startSignalin
   };
   const localVideo = useRef(null);
   const remoteVideo = useRef(null);
-  const peerConnection = useRef(null);
+  const peerConnections = useRef({}); // 🔥 Multi-peer support
   const callStarted = useRef(false);
 
-  const [remoteStream, setRemoteStream] = useState(null); // 🔥 NEW: State for remote stream
+  const [remoteStreams, setRemoteStreams] = useState({}); // 🔥 Multi-stream support
   const [callType, setCallType] = useState(initialCallType);
   const [stream, setStream] = useState(null);
   const [toast, setToast] = useState(null);
@@ -66,14 +66,10 @@ const toggleSpeaker = () => {
   const toggleCamera = async () => {
     if (stream) {
       const isGroup = !!friend.isGroup;
-      // 🔥 Target logic: Group mein active peer ko priority dein
-      const targetId = isGroup ? (targetUserId || (remoteOffer?.from) || friend.id) : friend.id;
 
       // 🔥 FIX: Start camera if no video tracks exist (e.g. incoming video upgrade)
       if (stream.getVideoTracks().length === 0) {
-        console.log("Upgrading to video... 📹");
         await switchToVideo();
-        setIsCameraOff(false);
         return;
       }
 
@@ -82,8 +78,10 @@ const toggleSpeaker = () => {
       });
       setIsCameraOff(!isCameraOff);
 
-      // 🔥 Tell friend my camera is ON/OFF
-      socket.emit("toggle-camera", { to: targetId, isOff: !isCameraOff, isGroup });
+      // 🔥 Tell all friends my camera is ON/OFF
+      Object.keys(peerConnections.current).forEach(pid => {
+        socket.emit("toggle-camera", { to: pid, isOff: !isCameraOff, isGroup });
+      });
     }
   };
 
@@ -95,10 +93,11 @@ const endCall = () => {
     stream.getTracks().forEach(track => track.stop());
   }
 
-  // 🔥 CLOSE PEER
-  if (peerConnection.current) {
-    peerConnection.current.close();
-  }
+  // 🔥 CLOSE ALL PEERS
+  Object.values(peerConnections.current).forEach(pc => {
+    if (pc) pc.close();
+  });
+  peerConnections.current = {};
 
   // 🔥 REAL DURATION CALCULATION
   const duration = callStartTime.current
@@ -141,10 +140,10 @@ const endCall = () => {
     }
   };
 
-  const createPeer = () => {
+  const createPeer = (targetId) => {
     // 🔥 Existing connection hai toh wahi return karein
-    if (peerConnection.current && peerConnection.current.signalingState !== "closed") {
-      return peerConnection.current;
+    if (peerConnections.current[targetId] && peerConnections.current[targetId].signalingState !== "closed") {
+      return peerConnections.current[targetId];
     }
 
   const pc = new RTCPeerConnection({
@@ -161,13 +160,14 @@ const endCall = () => {
     console.log(`Remote ${event.track.kind} track received`);
     if (!callStartTime.current) callStartTime.current = Date.now();
 
-    setRemoteStream(prevStream => {
+    setRemoteStreams(prev => {
       // 🔥 FIX: Return a NEW MediaStream instance to trigger React reactivity
-      const stream = prevStream || new MediaStream();
-      if (!stream.getTrackById(event.track.id)) {
-        stream.addTrack(event.track);
+      const newStreams = { ...prev };
+      if (!newStreams[targetId]) {
+        newStreams[targetId] = new MediaStream();
       }
-      return new MediaStream(stream.getTracks());
+      newStreams[targetId].addTrack(event.track);
+      return { ...newStreams };
     });
   };
 
@@ -201,11 +201,10 @@ const endCall = () => {
 
   pc.onicecandidate = (e) => {
     if (e.candidate) {
-      // Agar hum receiver hain, toh ICE candidate direct caller ko bhejein
-      const targetId = (!isCaller && remoteOffer) ? remoteOffer.from : (targetUserId || friend.id);
+      const finalTargetId = targetId || ((!isCaller && remoteOffer) ? remoteOffer.from : friend.id);
 
       socket.emit("ice-candidate", {
-        to: targetId,
+        to: finalTargetId,
         from: user.id,
         candidate: e.candidate,
         isGroup: !!friend.isGroup
@@ -213,7 +212,7 @@ const endCall = () => {
     }
   };
 
-  peerConnection.current = pc;
+  peerConnections.current[targetId] = pc;
   return pc;
 };
 const switchCamera = async () => {
@@ -227,21 +226,19 @@ const switchCamera = async () => {
   const videoTrack = newStream.getVideoTracks()[0];
   const audioTrack = newStream.getAudioTracks()[0]; // 🔥 Capture new audio to maintain sync
 
-  const sender = peerConnection.current
-    .getSenders()
-    .find(s => s.track.kind === "video");
+  // Update all peer connections
+  Object.values(peerConnections.current).forEach(pc => {
+    if (!pc || pc.signalingState === "closed") return;
+    
+    const videoSender = pc.getSenders().find(s => s.track?.kind === "video");
+    if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
 
-  if (sender) {
-    sender.replaceTrack(videoTrack);
-  }
+    const audioSender = pc.getSenders().find(s => s.track?.kind === "audio");
+    if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
+  });
 
   // 🔥 Maintain Mute State & Audio Connection
   if (isMuted && audioTrack) audioTrack.enabled = false;
-
-  const audioSender = peerConnection.current.getSenders().find(s => s.track.kind === "audio");
-  if (audioSender && audioTrack) {
-    audioSender.replaceTrack(audioTrack);
-  }
 
   setStream(newStream);
   setIsFrontCamera(!isFrontCamera);
@@ -252,9 +249,6 @@ const switchCamera = async () => {
 };
 const switchToVideo = async () => {
   try {
-    const pc = peerConnection.current;
-    if (!pc) return;
-
       let videoStream;
     try {
         // 🔥 Sirf video track mang rahe hain taaki voice call wala audio interrupt na ho
@@ -266,14 +260,13 @@ const switchToVideo = async () => {
 
       const videoTrack = videoStream.getVideoTracks()[0];
 
-      // 1. Local stream state mein video track add karein
-      if (stream) {
-        stream.addTrack(videoTrack);
-      } else {
-        setStream(videoStream);
-      }
+      if (stream) stream.addTrack(videoTrack); else setStream(videoStream);
 
-      // 2. PeerConnection mein video track swap ya add karein
+      // 2. All PeerConnections mein video track swap ya add karein
+      const isGroup = !!friend.isGroup;
+      for (const [tid, pc] of Object.entries(peerConnections.current)) {
+        if (!pc || pc.signalingState === "closed") continue;
+
       const videoSender = pc.getSenders().find(s => s.track?.kind === "video");
       if (videoSender) {
         await videoSender.replaceTrack(videoTrack);
@@ -281,48 +274,32 @@ const switchToVideo = async () => {
         pc.addTrack(videoTrack, stream || videoStream);
       }
     
-      if (localVideo.current) {
-        localVideo.current.srcObject = stream || videoStream;
-      }
-
-    setCallType("video");
-    setIsCameraOff(false);
-
-      // 🔥 Renegotiation Offer: Ab ye collision handle karega rollback ke sath
-      const isGroup = !!friend.isGroup;
-      const targetId = isGroup ? (targetUserId || (remoteOffer?.from) || friend.id) : friend.id;
-
-      setMakingOffer(true); // 🔥 We are making an offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-
       socket.emit("offer", {
-        to: targetId,
+        to: tid,
         from: user.id,
         offer, // 🔥 Offer contains the new video track
         isGroup
       });
-      setMakingOffer(false); // Offer sent
+      }
+
+      if (localVideo.current) localVideo.current.srcObject = stream || videoStream;
+
+    setCallType("video");
+    setIsCameraOff(false);
   } catch (err) {
    console.error("Switch video failed:", err);
   }
 };
-const callUser = async () => {
-    if (!stream) return; // ❌ prevent early call
+const callUser = async (targetId) => {
+    if (!stream || !targetId) return;
 
-    // 🔥 Group fix: Agar naya peer join kar raha hai toh purana connection reset karein 
-    // (Mesh support ke bina single video element par yahi best approach hai)
-    if (friend.isGroup && peerConnection.current) {
-      peerConnection.current.close();
-      peerConnection.current = null;
-    }
-
-  const pc = createPeer();
+  const pc = createPeer(targetId);
 
   setMakingOffer(true); // 🔥 We are making an offer
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  const targetId = (friend.isGroup && targetUserId) ? String(targetUserId) : friend.id;
 
   // 🔥 Offer contains the initial audio/video tracks
   // (if callType is video, it will have both)
@@ -337,8 +314,7 @@ const callUser = async () => {
 
 const handleOffer = async (data) => {
   const { offer, from, isGroup, groupId } = data;
-  let pc = peerConnection.current;
-  if (!pc) pc = createPeer();
+  let pc = createPeer(from);
   if (!pc || pc.signalingState === "closed") return; // 🔥 Don't proceed if PC is closed
 
   const polite = !makingOffer; // 🔥 If we are not making an offer, we are polite
@@ -392,8 +368,8 @@ const processQueuedCandidates = (pc) => {
   }
 };
 
-const handleAnswer = async ({ answer }) => {
-  const pc = peerConnection.current;
+const handleAnswer = async ({ answer, from }) => {
+  const pc = peerConnections.current[from];
   if (!pc) return;
   if (pc.signalingState === "stable" || pc.signalingState === "closed") return;
 
@@ -401,8 +377,7 @@ const handleAnswer = async ({ answer }) => {
     // Wrap answer in RTCSessionDescription
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
     
-    // ✅ Sahi jagah candidates process karne ki
-    processQueuedCandidates(peerConnection.current);
+    processQueuedCandidates(pc);
 
   } catch (e) {
     console.log("Answer error:", e);
@@ -411,10 +386,7 @@ const handleAnswer = async ({ answer }) => {
 
 const handleIce = async ({ candidate, from }) => {
   if (candidate) {
-    const pc = peerConnection.current;
-
-    // Group call mein sirf usi peer ke candidates lein jiske saath negotiation ho raha hai
-    if (friend.isGroup && !isCaller && remoteOffer && String(from) !== String(remoteOffer.from)) return;
+    const pc = peerConnections.current[from];
 
     // Signaling check update taaki candidate reject na ho
     if (pc && pc.remoteDescription && (pc.signalingState === "stable" || pc.signalingState === "have-local-offer" || pc.signalingState === "have-remote-offer")) {
@@ -439,26 +411,30 @@ const handleIce = async ({ candidate, from }) => {
 
 
 // 🔥 NEW: Effect to update remoteVideo.current.srcObject when remoteStream changes
-  useEffect(() => {
-    if (remoteVideo.current && remoteStream) {
-      if (remoteVideo.current.srcObject !== remoteStream) {
-        remoteVideo.current.srcObject = remoteStream;
-      }
-      
-      // Agar remote video track mil gaya hai, toh UI switch karo
-      const hasVideo = remoteStream.getVideoTracks().length > 0;
-      if (hasVideo) {
-        setCallType("video");
-        setRemoteCameraOff(false);
-      }
-      setHasRemoteStream(true);
+useEffect(() => {
+  const streams = Object.values(remoteStreams);
+  if (remoteVideo.current && streams.length > 0) {
+    const videoStream = streams.find(s => s.getVideoTracks().length > 0) || streams[0];
+    if (remoteVideo.current.srcObject !== videoStream) {
+      remoteVideo.current.srcObject = videoStream;
     }
-  }, [remoteStream]);
+    
+    const hasVideo = videoStream.getVideoTracks().length > 0;
+    if (hasVideo) {
+      setCallType("video");
+      setRemoteCameraOff(false);
+    }
+    setHasRemoteStream(true);
+  }
+}, [remoteStreams]);
 
   // ✅ Fix: Only handle offer when we have our own stream ready
   useEffect(() => {
 // 🔥 Only handle if offer exists and we are not in a closed state
-    if (remoteOffer && (stream || (peerConnection.current && peerConnection.current.signalingState !== "closed"))) {      console.log("Stream ready, processing queued offer...");
+    const pcForOffer = remoteOffer ? peerConnections.current[remoteOffer.from] : null;
+    
+    if (remoteOffer && (stream || (pcForOffer && pcForOffer.signalingState !== "closed"))) {
+      console.log("Stream ready, processing queued offer...");
       const data = remoteOffer;
       setRemoteOffer(null);
             handleOffer(data);
@@ -489,11 +465,11 @@ const handleIce = async ({ candidate, from }) => {
       // 🔥 Group connectivity fix: 
       // Har baar jab targetUserId (naya acceptor) aaye, tab call start karein
       if (!targetUserId) return;
-      callUser();
+      callUser(targetUserId);
     } else {
       // 1-to-1 logic (Iska purana behaviour maintain rakha hai)
       if (callStarted.current) return;
-      callUser();
+      callUser(friend.id);
       callStarted.current = true;
     }
   }
@@ -593,6 +569,18 @@ onClick={() => {
           }}
         />
       )}
+
+      {/* 🔊 REMOTE AUDIO ELEMENTS (For all participants) */}
+      <div style={{ display: "none" }}>
+        {Object.entries(remoteStreams).map(([peerId, pStream]) => (
+          <audio
+            key={peerId}
+            autoPlay
+            ref={el => { if (el) el.srcObject = pStream; }}
+            muted={!isSpeakerOn}
+          />
+        ))}
+      </div>
 
       {/* 📺 REMOTE VIDEO */}
       <video
@@ -704,10 +692,9 @@ export default Call;
 
       {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
 {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-      {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+{/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+{/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+{/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+{/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
+{/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
      
