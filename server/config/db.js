@@ -1,7 +1,14 @@
 const mysql = require("mysql2");
 require("dotenv").config();
 
-const db = mysql.createPool(process.env.DATABASE_URL);
+const dbUrl = process.env.DATABASE_URL;
+
+if (!dbUrl) {
+  console.error("❌ DATABASE_URL missing");
+  process.exit(1);
+}
+
+const db = mysql.createPool(dbUrl);
 
 db.getConnection((err, conn) => {
   if (err) {
