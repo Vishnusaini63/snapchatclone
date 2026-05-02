@@ -2300,17 +2300,22 @@ AND status = 'sent'
       }
     });
   });
-  socket.on("answerCall", ({ to, from }) => {
+  socket.on("answerCall", ({ to, from, isGroup, groupId }) => {
     console.log("Call accepted:", from, "↔", to);
 
     // ✅ dono busy
     inCallUsers.add(String(from));
     inCallUsers.add(String(to));
 
-    const receiverSocket = users[String(to)];
-
-    if (receiverSocket) {
-      io.to(receiverSocket).emit("callAccepted", { from }); // Joiner ki ID initiator ko bhejo
+    if (isGroup && groupId) {
+      // Notify everyone in the group room that a new participant has joined
+      // This allows existing participants to initiate connections to the newcomer
+      io.to(String(groupId)).emit("callAccepted", { from, isGroup: true, groupId });
+    } else {
+      const receiverSocket = users[String(to)];
+      if (receiverSocket) {
+        io.to(receiverSocket).emit("callAccepted", { from }); // Joiner ki ID initiator ko bhejo
+      }
     }
   });
   socket.on("rejectCall", ({ to, from, callType, isGroup, groupId }) => {
@@ -2595,11 +2600,13 @@ AND status = 'sent'
 
   socket.on("toggle-camera", (data) => {
     const { to, isOff, isGroup } = data;
+    const payload = { isOff, userId: String(currentUserId) };
     if (isGroup) {
-      socket.to(String(to)).emit("toggle-camera", { isOff });
+      // Poore group room ko notification bhejo
+      io.to(String(to)).emit("toggle-camera", payload);
     } else {
       const receiverSocket = users[String(to)];
-      if (receiverSocket) io.to(receiverSocket).emit("toggle-camera", { isOff });
+      if (receiverSocket) io.to(receiverSocket).emit("toggle-camera", payload);
     }
   });
 

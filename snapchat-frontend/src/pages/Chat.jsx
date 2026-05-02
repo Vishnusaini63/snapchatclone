@@ -40,18 +40,22 @@ const Chat = () => {
       ringtone.play().catch(() => {});
     };
 
-    const stopRingtone = () => {
+    const stopRingtone = (data) => {
       console.log("Stopping global ringtone...");
-      ringtone.pause(); // 🔥 Pehle pause karo
+      
+      // Group call mein agar koi join kare toh popup nahi hatna chahiye baaki logo ke liye
+      if (data?.isGroup && !data?.ended) return;
+
+      ringtone.pause(); 
       ringtone.loop = false;
-      ringtone.currentTime = 0; // 🔥 Phir reset karo
+      ringtone.currentTime = 0; 
       setCallIncoming(null);
     };
 
     socket.on("incomingCall", handleIncomingCall);
-    socket.on("callEnded", stopRingtone);
-    socket.on("callAccepted", stopRingtone);
-    socket.on("callRejected", stopRingtone);
+    socket.on("callEnded", () => stopRingtone({ ended: true }));
+    socket.on("callAccepted", (data) => stopRingtone(data));
+    socket.on("callRejected", (data) => stopRingtone(data));
 
     return () => {
       socket.off("incomingCall", handleIncomingCall);
@@ -82,7 +86,15 @@ const Chat = () => {
         isGroup: !!callIncoming.isGroup
       }));
 
-      socket.emit("answerCall", { to: callIncoming.from, from: user.id });
+      // 🔥 Force refresh call state in ChatBox immediately
+      window.dispatchEvent(new Event("resumeCall"));
+
+      socket.emit("answerCall", { 
+        to: callIncoming.from, 
+        from: user.id,
+        isGroup: !!callIncoming.isGroup,
+        groupId: callIncoming.groupId
+      });
       setSelectedFriend(target);
     }
     setCallIncoming(null);

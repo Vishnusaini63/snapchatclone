@@ -43,6 +43,7 @@ const [hasRemoteStream, setHasRemoteStream] = useState(false); // 🔥 Track con
 const [remoteCameraOff, setRemoteCameraOff] = useState(initialCallType === "voice"); // 🔥 Start based on call type
 const [isMinimized, setIsMinimized] = useState(false);
 const callStartTime = useRef(null);
+  const [remoteCameraStatuses, setRemoteCameraStatuses] = useState({});
   // ⏱️ TIMER
   const [seconds, setSeconds] = useState(0);
 const toggleSpeaker = () => {
@@ -65,22 +66,15 @@ const toggleSpeaker = () => {
   // 📷 CAMERA
   const toggleCamera = async () => {
     if (stream) {
-      const isGroup = !!friend.isGroup;
+      const newStatus = !isCameraOff;
+      if (stream.getVideoTracks().length === 0) { await switchToVideo(); return; }
+      stream.getVideoTracks().forEach(track => { track.enabled = !newStatus; });
+      setIsCameraOff(newStatus);
 
-      // 🔥 FIX: Start camera if no video tracks exist (e.g. incoming video upgrade)
-      if (stream.getVideoTracks().length === 0) {
-        await switchToVideo();
-        return;
-      }
-
-      stream.getVideoTracks().forEach(track => {
-        track.enabled = isCameraOff;
-      });
-      setIsCameraOff(!isCameraOff);
-
-      // 🔥 Tell all friends my camera is ON/OFF
-      Object.keys(peerConnections.current).forEach(pid => {
-        socket.emit("toggle-camera", { to: pid, isOff: !isCameraOff, isGroup });
+      socket.emit("toggle-camera", { 
+        to: friend.id, 
+        isOff: newStatus, 
+        isGroup: !!friend.isGroup 
       });
     }
   };
@@ -161,13 +155,17 @@ const endCall = () => {
     if (!callStartTime.current) callStartTime.current = Date.now();
 
     setRemoteStreams(prev => {
-      // 🔥 FIX: Return a NEW MediaStream instance to trigger React reactivity
       const newStreams = { ...prev };
-      if (!newStreams[targetId]) {
-        newStreams[targetId] = new MediaStream();
+      const currentStream = newStreams[targetId] || new MediaStream();
+      
+      // Prevent adding the same track multiple times
+      if (!currentStream.getTracks().find(t => t.id === event.track.id)) {
+        currentStream.addTrack(event.track);
       }
-      newStreams[targetId].addTrack(event.track);
-      return { ...newStreams };
+
+      // 🔥 IMPORTANT: Create a NEW MediaStream instance so React detects the change
+      newStreams[targetId] = new MediaStream(currentStream.getTracks());
+      return newStreams;
     });
   };
 
@@ -249,18 +247,28 @@ const switchCamera = async () => {
 };
 const switchToVideo = async () => {
   try {
-      let videoStream;
+    // Stop existing tracks to free up the hardware (prevents "Camera inaccessible")
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+
+    let videoStream;
     try {
-        // 🔥 Sirf video track mang rahe hain taaki voice call wala audio interrupt na ho
-        videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      // Get fresh stream with both video and audio
+      videoStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: "user" }, 
+        audio: true 
+      });
     } catch (gUMError) {
       showToast("Camera inaccessible 📹");
       return;
     }
 
-      const videoTrack = videoStream.getVideoTracks()[0];
+    const videoTrack = videoStream.getVideoTracks()[0];
+    const audioTrack = videoStream.getAudioTracks()[0];
 
-      if (stream) stream.addTrack(videoTrack); else setStream(videoStream);
+    setStream(videoStream);
+    if (localVideo.current) localVideo.current.srcObject = videoStream;
 
       // 2. All PeerConnections mein video track swap ya add karein
       const isGroup = !!friend.isGroup;
@@ -271,9 +279,13 @@ const switchToVideo = async () => {
       if (videoSender) {
         await videoSender.replaceTrack(videoTrack);
       } else {
-        pc.addTrack(videoTrack, stream || videoStream);
+        pc.addTrack(videoTrack, videoStream);
       }
+
+      const audioSender = pc.getSenders().find(s => s.track?.kind === "audio");
+      if (audioSender && audioTrack) await audioSender.replaceTrack(audioTrack);
     
+      // Renegotiate with all peers to show video
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       socket.emit("offer", {
@@ -283,8 +295,6 @@ const switchToVideo = async () => {
         isGroup
       });
       }
-
-      if (localVideo.current) localVideo.current.srcObject = stream || videoStream;
 
     setCallType("video");
     setIsCameraOff(false);
@@ -449,7 +459,9 @@ useEffect(() => {
     socket.on("offer", (data) => setRemoteOffer(data)); // 🔥 Queue offer instead of handling immediately
     socket.on("answer", handleAnswer);
     socket.on("ice-candidate", handleIce);
-    socket.on("toggle-camera", ({ isOff }) => setRemoteCameraOff(isOff)); // 🔥 Update remote camera state
+    socket.on("toggle-camera", ({ userId, isOff }) => {
+      setRemoteCameraStatuses(prev => ({ ...prev, [String(userId)]: isOff }));
+    }); 
 
     return () => {
       socket.off("offer");
@@ -460,20 +472,19 @@ useEffect(() => {
   }, []);
 
  useEffect(() => {
-  if (stream && isCaller && startSignaling) {
+  if (stream && startSignaling) {
     if (friend.isGroup) {
-      // 🔥 Group connectivity fix: 
-      // Har baar jab targetUserId (naya acceptor) aaye, tab call start karein
-      if (!targetUserId) return;
+      // In group calls, everyone already in the call initiates a connection to the new joiner
+      if (!targetUserId || String(targetUserId) === String(user.id)) return;
       callUser(targetUserId);
-    } else {
+    } else if (isCaller) {
       // 1-to-1 logic (Iska purana behaviour maintain rakha hai)
       if (callStarted.current) return;
       callUser(friend.id);
       callStarted.current = true;
     }
   }
-}, [stream, isCaller, startSignaling, targetUserId, friend.isGroup]); 
+}, [stream, isCaller, startSignaling, targetUserId, friend.isGroup, user.id]); 
 
 useEffect(() => {
   if (hasRemoteStream && !callStartTime.current) {
@@ -492,7 +503,23 @@ useEffect(() => {
 
   return () => clearInterval(interval);
 }, [hasRemoteStream, isMinimized]); 
+const getParticipantInfo = (pid) => {
+    if (String(pid) === String(user.id)) return { username: "You", avatar: user.profile_pic || user.avatar };
+    const member = friend.membersList?.find(m => String(m.id) === String(pid));
+    if (member) return { username: member.username, avatar: member.profile_pic || member.avatar };
+    if (!friend.isGroup) return { username: friend.username, avatar: friend.avatar || friend.profile_pic };
+    return { username: "User", avatar: null };
+  };
 
+  const allParticipants = [
+    { id: user.id, stream: stream, isLocal: true, cameraOff: isCameraOff },
+    ...Object.entries(remoteStreams).map(([pid, rStream]) => ({
+      id: pid,
+      stream: rStream,
+      isLocal: false,
+// Camera tabhi off dikhayega jab signal mile ya video track bilkul na ho
+      cameraOff: remoteCameraStatuses[pid] === true || rStream.getVideoTracks().length === 0    }))
+  ];
   return (
     <>
   {toast && (
@@ -552,83 +579,26 @@ onClick={() => {
         {formatTime()}
       </div>
 
-      {/* 🎥 LOCAL VIDEO */}
-      {callType === "video" && (
-        <video
-          ref={localVideo}
-          autoPlay
-          muted
-          style={{
-            width: isCameraOff ? "0px" : "120px", // Hide local preview if camera is off
-            position: "absolute",
-            top: "10px",
-            left: "10px",
-            borderRadius: "10px",
-            zIndex: 2,
-            border: isCameraOff ? "none" : "2px solid #fff"
-          }}
-        />
-      )}
-
-      {/* 🔊 REMOTE AUDIO ELEMENTS (For all participants) */}
-      <div style={{ display: "none" }}>
-        {Object.entries(remoteStreams).map(([peerId, pStream]) => (
-          <audio
-            key={peerId}
-            autoPlay
-            ref={el => { if (el) el.srcObject = pStream; }}
-            muted={!isSpeakerOn}
+      {/* 📺 PARTICIPANTS RESPONSIVE GRID */}
+      <div style={{
+        display: 'grid',
+        // Dynamic columns based on people count
+        gridTemplateColumns: allParticipants.length <= 2 ? '1fr' : 
+                             allParticipants.length <= 4 ? '1fr 1fr' : '1fr 1fr 1fr',
+        gridAutoRows: allParticipants.length <= 2 ? '1fr' : 'minmax(200px, 1fr)',
+        gap: '12px', padding: '75px 15px', height: 'calc(100% - 100px)', width: '100%',
+        overflowY: 'auto', boxSizing: 'border-box'
+      }}>
+        {allParticipants.map((p) => (
+          <ParticipantTile 
+            key={p.id} 
+            participant={p} 
+            info={getParticipantInfo(p.id)} 
+            isSpeakerOn={isSpeakerOn} 
+            total={allParticipants.length}
           />
         ))}
       </div>
-
-      {/* 📺 REMOTE VIDEO */}
-      <video
-        ref={remoteVideo}
-        autoPlay
-          playsInline   // 🔥 MUST
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          // 🔥 FIX: Remote video tabhi dikhega jab remote stream ho aur camera off na ho
-          opacity: (hasRemoteStream && !remoteCameraOff) ? 1 : 0 
-        }}
-      />
-
-      {/* 🟢 CALL STATUS & PROFILE OVERLAY */}
-      {/* 🔥 FIX: Only show overlay if no stream OR remote camera is explicitly off */}
-      {(!hasRemoteStream || remoteCameraOff) && (
-        <div style={{
-          position: "absolute",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          color: "#fff",
-          zIndex: 4
-        }}>
-          <div style={{
-             width: "100px", height: "100px", borderRadius: "50%",
-             background: "#333", border: "2px solid #fff", overflow: "hidden",
-             display: "flex", alignItems: "center", justifyContent: "center",
-             fontSize: "3rem", fontWeight: "bold", textTransform: "uppercase", marginBottom: "15px"
-          }}>
-             {(friend?.avatar || friend?.profile_pic) ? <img src={friend.avatar || friend.profile_pic} style={{width:"100%", height:"100%", objectFit:"cover"}} /> : (friend?.isGroup ? "👥" : (friend?.username?.[0] || "?"))}
-          </div>
-          {/* 🔥 Profile info text hidden when face is visible */}
-          {!(!remoteCameraOff && hasRemoteStream) && (
-            <>
-              <h2 style={{textShadow: "0 2px 5px rgba(0,0,0,0.5)"}}>{friend.isGroup ? friend.name : (friend?.username || "Friend")}</h2>
-              <p style={{fontSize: "1.2rem", marginTop: "5px", opacity: 0.8, textShadow: "0 1px 2px rgba(0,0,0,0.5)"}}>
-                {!hasRemoteStream ? (isCaller ? "Ringing..." : "Connecting...") : "Voice Call 🎧"}
-              </p>
-            </>
-          )}
-        </div>
-      )}
 
       {/* 🎮 CONTROLS */}
      <div style={{
@@ -686,12 +656,51 @@ onClick={() => {
   );
 };
 
+const ParticipantTile = ({ participant, info, isSpeakerOn, total }) => {
+  const vRef = useRef();
+  useEffect(() => {
+    if (vRef.current && participant.stream) vRef.current.srcObject = participant.stream;
+  }, [participant.stream]);
+
+  return (
+    <div style={{
+      width: '100%', height: '100%', position: 'relative', background: '#1a1a1a', 
+      borderRadius: '15px', overflow: 'hidden', display: 'flex', 
+      alignItems: 'center', justifyContent: 'center', border: '1px solid #333'
+    }}>
+      <video
+        ref={vRef}
+        autoPlay
+        playsInline
+        muted={participant.isLocal || !isSpeakerOn}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: participant.cameraOff ? 'none' : 'block' }}
+      />
+      {participant.cameraOff && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+          <div style={{
+            width: total > 6 ? '55px' : '90px', height: total > 6 ? '55px' : '90px', 
+            borderRadius: '50%', background: '#333', border: '2px solid #FFFC00',
+            overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}>
+            {info.avatar ? <img src={info.avatar} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{fontSize: '24px'}}>👤</span>}
+          </div>
+          <span style={{ color: '#fff', fontSize: total > 4 ? '12px' : '14px', fontWeight: '600' }}>{info.username}</span>
+        </div>
+      )}
+      {!participant.cameraOff && (
+        <div style={{ position: 'absolute', bottom: '10px', left: '10px', background: 'rgba(0,0,0,0.5)', padding: '2px 8px', borderRadius: '5px', color: '#fff', fontSize: '11px' }}>
+          {info.username}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default Call;
 
 
 
       {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
-{/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
 {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
 {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
 {/* Reactions dfgchjbnkml;,kjvcxvbnm,./mnvcxzvbnm,.mnbvcxvbnm,.kjxzcvjklkjhgfdxzcvbjn*/}
