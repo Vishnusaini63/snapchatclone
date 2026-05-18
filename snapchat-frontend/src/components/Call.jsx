@@ -170,6 +170,8 @@ const endCall = () => {
   };
 
   // ✅ Robust connection tracking using connectionState
+  // ✅ Robust connection tracking using connectionState
+  // ✅ Robust connection tracking using connectionState
   pc.onconnectionstatechange = () => {
     console.log("WebRTC Connection State:", pc.connectionState);
     if (pc.connectionState === "connected" || pc.connectionState === "completed") {
@@ -179,6 +181,11 @@ const endCall = () => {
       showToast(`Connection failed: ${pc.connectionState} ❌`);
     }
   };
+
+
+
+
+
 
   pc.oniceconnectionstatechange = () => {
     console.log("ICE Connection State:", pc.iceConnectionState);
